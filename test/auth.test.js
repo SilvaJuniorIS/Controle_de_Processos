@@ -15,7 +15,7 @@ after(async()=>{await new Promise(r=>server.close(r));rmSync(dir,{recursive:true
 test('espaço privado: login, cookies, bloqueio de dados e logout',async t=>{
  let cookie;
  await t.test('consultas e alterações exigem sessão',async()=>{
-  for(const [path,method]of [['processes','GET'],['processes','POST'],['demo','DELETE'],['health','GET']]){const r=await fetch(`${base}/api/${path}`,{method});assert.equal(r.status,401);assert.equal((await r.json()).loginRequired,true);}
+  for(const [path,method]of [['notes','GET'],['notes','POST'],['notes/test','PUT'],['notes/test','DELETE'],['processes','GET'],['processes','POST'],['demo','DELETE'],['health','GET']]){const r=await fetch(`${base}/api/${path}`,{method});assert.equal(r.status,401);assert.equal((await r.json()).loginRequired,true);}
  });
  await t.test('senha incorreta e login de outra origem são recusados',async()=>{
   const r=await fetch(base+'/api/login',{method:'POST',body:JSON.stringify({password:'errada'})});assert.equal(r.status,401);assert.equal(r.headers.get('set-cookie'),null);

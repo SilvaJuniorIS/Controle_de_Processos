@@ -32,6 +32,10 @@ test('Postgres: migração, CRUD, unicidade, concorrência e transação de exem
   await assert.rejects(()=>db.save({...p,title:'Edição desatualizada'},p),/atualizado em outra janela/);
   const demo={...p,id:randomUUID(),number:'002',demo:true};await db.seed([demo]);assert.equal((await db.all()).length,2);
   await assert.rejects(()=>db.seed([{...demo,id:randomUUID(),number:'003'},{...demo,id:randomUUID()}]));assert.equal(await db.duplicate('003',2026,''),false);
+  const note={id:randomUUID(),title:'Reunião',content:'Anotação independente.',entryDate:'2026-10-28',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),version:randomUUID()};
+  await db.notes.save(note);assert.deepEqual(await db.notes.get(note.id),note);
+  const edited={...note,content:'Texto revisado.',version:randomUUID()};await db.notes.save(edited,note);await assert.rejects(()=>db.notes.save(note,note),/mudou em outra janela/);await assert.rejects(()=>db.notes.remove(note.id,note.version),/mudou em outra janela/);
   await db.removeDemo();assert.deepEqual(await db.all(),[updated]);await db.remove(p.id);assert.deepEqual(await db.all(),[]);
+  assert.deepEqual(await db.notes.all(),[edited]);await db.notes.remove(edited.id,edited.version);assert.deepEqual(await db.notes.all(),[]);
  }finally{await pg.close();}
 });

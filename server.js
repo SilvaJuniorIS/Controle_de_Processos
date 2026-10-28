@@ -67,7 +67,7 @@ async function seed() {
   }
   await (await storage()).seed(records);
 }
-const files = { '/': ['index.html','text/html'], '/app.js': ['app.js','text/javascript'], '/style.css': ['style.css','text/css'], '/favicon.svg':['favicon.svg','image/svg+xml'] };
+const files = { '/': ['index.html','text/html'], '/app.js': ['app.js','text/javascript'], '/diary.js':['diary.js','text/javascript'], '/style.css': ['style.css','text/css'], '/favicon.svg':['favicon.svg','image/svg+xml'] };
 export async function handler(req,res) {
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
@@ -86,6 +86,30 @@ export async function handler(req,res) {
       if(url.pathname==='/api/logout' && req.method==='POST') { res.setHeader('Set-Cookie',sessionCookie(true));return send(res,200,{ok:true}); }
     }
     if (url.pathname === '/api/health') { const db=await storage(); await db.all(); return send(res,200,{status:'ok',storage:db.kind,private:authRequired()}); }
+    if(url.pathname==='/api/notes' || /^\/api\/notes\/[\w-]+$/.test(url.pathname)) {
+      const notes=(await storage()).notes;
+      const id=url.pathname.split('/')[3];
+      if(!id && req.method==='GET')return send(res,200,await notes.all());
+      const old=id?await notes.get(id):null;
+      if(id && !old)return send(res,404,{error:'Anotação não encontrada.'});
+      if(id && req.method==='GET')return send(res,200,old);
+      if((!id && req.method==='POST') || (id && req.method==='PUT')) {
+        const input=await body(req);
+        if(!input || typeof input.title!=='string' || !input.title.trim() || input.title.trim().length>200)throw new Error('Informe um assunto com até 200 caracteres.');
+        if(typeof input.content!=='string' || !input.content.trim() || input.content.length>20000)throw new Error('Escreva sua anotação, com até 20.000 caracteres.');
+        if(!validDate(input.entryDate))throw new Error('Informe uma data válida para a anotação.');
+        if(old && input.version!==old.version)return send(res,409,{error:'Esta anotação mudou desde a última leitura. Reabra antes de editar.'});
+        const now=new Date().toISOString();
+        const note={id:old?.id||randomUUID(),title:input.title.trim(),content:input.content.trim(),entryDate:input.entryDate,createdAt:old?.createdAt||now,updatedAt:now,version:randomUUID()};
+        await notes.save(note,old);return send(res,old?200:201,note);
+      }
+      if(id && req.method==='DELETE') {
+        const input=await body(req);
+        if(input?.version!==old.version)return send(res,409,{error:'Esta anotação mudou desde a última leitura. Reabra antes de excluir.'});
+        await notes.remove(id,old.version);return send(res,200,{ok:true});
+      }
+      return send(res,405,{error:'Método não permitido.'});
+    }
     if (url.pathname === '/api/processes' && req.method === 'GET') return send(res,200,await all());
     if (url.pathname === '/api/demo' && req.method === 'POST') { await seed(); return send(res,201,await all()); }
     if (url.pathname === '/api/demo' && req.method === 'DELETE') { await (await storage()).removeDemo(); return send(res,200,{ok:true}); }
@@ -114,7 +138,7 @@ export async function handler(req,res) {
     send(res,404,{error:'Rota não encontrada.'});
   } catch(error) {
     if(error.code==='23505' || error.code?.startsWith('SQLITE_CONSTRAINT')) return send(res,409,{error:'Já existe um processo com esse número e ano.'});
-    if(error.message?.startsWith('Este processo')) return send(res,409,{error:error.message});
+    if(error.message?.startsWith('Este processo') || error.message?.startsWith('Esta anotação')) return send(res,409,{error:error.message});
     if(error.name==='NeonDbError' || error.message?.includes('fetch failed')) { console.error('Falha de conexão com o banco.');return send(res,503,{error:'O banco de dados está indisponível. Tente novamente em instantes.'}); }
     console.error(error.message); send(res,400,{error:error.message});
   }

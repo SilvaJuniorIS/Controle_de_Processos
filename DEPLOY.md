@@ -15,7 +15,7 @@ O código está adaptado para funções Node.js 24 na Vercel. A publicação e a
 1. Crie/acesse sua conta na Vercel. Crie o projeto com o nome sugerido `atlasnex-fluxo` (sujeito à disponibilidade). Pode usar a CLI abaixo para enviar este diretório sem depender de push no GitHub.
 2. No Marketplace/Storage da Vercel, crie ou conecte uma base Neon Postgres. Não contrate recursos pagos sem revisar os limites e preços do provedor. Configure `DATABASE_URL` nas variáveis do projeto para Production. Se a integração usar outro nome, adicione `DATABASE_URL` com a conexão Neon apropriada pelo painel seguro.
 3. Adicione `APP_PASSWORD` como variável sensível do projeto para Production. Use uma senha aleatória forte, com pelo menos 16 caracteres. Não a envie em chat nem a grave no repositório. Guarde-a em seu gerenciador de senhas.
-4. Mantenha o framework como **Other**, Node.js **24.x** e as configurações de build de `vercel.json`. O build executa a validação e a migração idempotente do banco; não apaga registros existentes.
+4. Mantenha o framework como **Other**, Node.js **24.x** e as configurações de build de `vercel.json`. O build executa a validação e a migração idempotente das tabelas `processes` e `field_notes`; não apaga registros existentes.
 
 Para usar Preview, configure também as duas variáveis nesse ambiente e, preferencialmente, use uma branch Neon separada da base de produção. Não deixe previews escreverem silenciosamente na base real.
 

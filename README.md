@@ -39,6 +39,14 @@ O espaço é protegido por uma senha compartilhada e cookie de sessão assinado 
 - Interface responsiva sem fontes ou serviços visuais externos.
 - Postgres e SQLite com unicidade de número/ano e detecção de conflito de gravação. Edições pela interface enviam a versão lida e recusam substituir uma versão mais nova.
 
+## Diário de campo
+
+No menu **Diário de campo**, use **Nova anotação** para criar uma entrada independente com assunto, data e texto livre. É possível manter vários assuntos no mesmo dia sem misturá-los. As entradas aparecem agrupadas por data, com busca no assunto/texto e filtro por dia.
+
+Cada entrada pode ser lida, editada ou excluída separadamente. Há confirmação antes de descartar texto não salvo ou excluir uma anotação, e detecção de conflito se outra janela atualizar a mesma entrada. O diário utiliza o mesmo acesso privado do espaço e não depende de nenhum processo. Não é uma conta pessoal separada: quem tem a senha do espaço acessa suas anotações.
+
+As notas ficam na tabela `field_notes` do mesmo banco usado pelo espaço, preservando quebras de linha. A migração adiciona essa tabela sem apagar os processos. A exportação CSV de processos não inclui o diário; o backup completo do banco preserva ambos. O texto é salvo ao clicar em **Salvar anotação**; não há salvamento automático de rascunhos.
+
 ## Persistência e limites
 
 Localmente, os registros ficam em `data/fluxo.sqlite` (ignorado pelo Git). Para um backup simples e consistente, pare o servidor, copie a pasta `data/` inteira para um destino seguro e reinicie. O SQLite usa WAL: não copie somente o arquivo principal durante gravações. Restaure com o servidor parado e teste antes de descartar o original.

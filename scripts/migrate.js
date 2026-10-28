@@ -4,4 +4,5 @@ if(!process.env.DATABASE_URL) throw new Error('Configure DATABASE_URL com a cone
 const sql=neon(process.env.DATABASE_URL);
 await sql`CREATE TABLE IF NOT EXISTS processes (id TEXT PRIMARY KEY, body JSONB NOT NULL)`;
 await sql`CREATE UNIQUE INDEX IF NOT EXISTS processes_number_year ON processes ((body->>'number'),(body->>'year'))`;
-console.log('Schema de processos preparado no Postgres.');
+await sql`CREATE TABLE IF NOT EXISTS field_notes (id TEXT PRIMARY KEY, body JSONB NOT NULL)`;
+console.log('Schemas de processos e diário preparados no Postgres.');

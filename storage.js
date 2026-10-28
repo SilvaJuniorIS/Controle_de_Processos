@@ -17,6 +17,15 @@ async function createStorage() {
     const sql = neon(process.env.DATABASE_URL);
     return {
       kind: 'postgres',
+      notes: {
+        async all() { return (await sql`SELECT body FROM field_notes ORDER BY body->>'entryDate' DESC, body->>'createdAt' DESC, id DESC`).map(r=>r.body); },
+        async get(id) { return (await sql`SELECT body FROM field_notes WHERE id=${id}`)[0]?.body || null; },
+        async save(note,old) {
+          if(!old)await sql`INSERT INTO field_notes (id,body) VALUES (${note.id},${JSON.stringify(note)}::jsonb)`;
+          else {const r=await sql`UPDATE field_notes SET body=${JSON.stringify(note)}::jsonb WHERE id=${note.id} AND body->>'version'=${old.version} RETURNING id`;if(!r.length)throw new Error('Esta anotação mudou em outra janela. Reabra antes de editar.');}
+        },
+        async remove(id,version) { const r=await sql`DELETE FROM field_notes WHERE id=${id} AND body->>'version'=${version} RETURNING id`;if(!r.length)throw new Error('Esta anotação mudou em outra janela. Reabra antes de excluir.'); }
+      },
       // Schema is installed explicitly before deployment, never on a request.
       async all() { return (await sql`SELECT body FROM processes ORDER BY body->>'createdAt' DESC, id DESC`).map(r => r.body); },
       async get(id) { return (await sql`SELECT body FROM processes WHERE id=${id}`)[0]?.body || null; },
@@ -40,10 +49,20 @@ async function createStorage() {
   const db = new DatabaseSync(dbPath);
   db.exec(`PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS processes (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS field_notes (id TEXT PRIMARY KEY, body TEXT NOT NULL);
     CREATE UNIQUE INDEX IF NOT EXISTS processes_number_year ON processes(json_extract(body,'$.number'),json_extract(body,'$.year'));`);
   const insert=db.prepare('INSERT INTO processes (id,body) VALUES (?,?)');
   return {
     kind:'sqlite',
+    notes: {
+      async all() { return db.prepare("SELECT body FROM field_notes ORDER BY json_extract(body,'$.entryDate') DESC, json_extract(body,'$.createdAt') DESC, id DESC").all().map(r=>JSON.parse(r.body)); },
+      async get(id) { const row=db.prepare('SELECT body FROM field_notes WHERE id=?').get(id);return row?JSON.parse(row.body):null; },
+      async save(note,old) {
+        if(!old)db.prepare('INSERT INTO field_notes (id,body) VALUES (?,?)').run(note.id,JSON.stringify(note));
+        else {const r=db.prepare("UPDATE field_notes SET body=? WHERE id=? AND json_extract(body,'$.version')=?").run(JSON.stringify(note),note.id,old.version);if(!r.changes)throw new Error('Esta anotação mudou em outra janela. Reabra antes de editar.');}
+      },
+      async remove(id,version) {const r=db.prepare("DELETE FROM field_notes WHERE id=? AND json_extract(body,'$.version')=?").run(id,version);if(!r.changes)throw new Error('Esta anotação mudou em outra janela. Reabra antes de excluir.');}
+    },
     async all() { return db.prepare('SELECT body FROM processes ORDER BY rowid DESC').all().map(r=>JSON.parse(r.body)); },
     async get(id) { const row=db.prepare('SELECT body FROM processes WHERE id=?').get(id); return row?JSON.parse(row.body):null; },
     async duplicate(number,year,id) { return !!db.prepare("SELECT id FROM processes WHERE json_extract(body,'$.number')=? AND json_extract(body,'$.year')=? AND id<>?").get(number,year,id); },
