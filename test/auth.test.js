@@ -1,31 +1,34 @@
-import { test, before, after } from 'node:test';
+import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-const dir=mkdtempSync(join(tmpdir(),'fluxo-auth-'));
-process.env.DB_PATH=join(dir,'test.sqlite');
-process.env.APP_PASSWORD=randomBytes(24).toString('base64url');
+import {randomBytes} from 'node:crypto';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
+const dir=mkdtempSync(join(tmpdir(),'fluxo-users-'));process.env.DB_PATH=join(dir,'test.sqlite');
+const secret=randomBytes(24).toString('hex');process.env.APP_PASSWORD=secret;
+// Simulate the existing production schema and orphaned legacy records.
+const disk=new DatabaseSync(process.env.DB_PATH);disk.exec('CREATE TABLE processes(id TEXT PRIMARY KEY,body TEXT NOT NULL);CREATE TABLE field_notes(id TEXT PRIMARY KEY,body TEXT NOT NULL)');
+const p={id:'legacy-process',number:'001',year:2026,title:'Processo existente',reason:'Entrada',receivedAt:'2026-10-28',status:'A analisar',priority:'Normal',history:[],version:'legacy-version',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+disk.prepare('INSERT INTO processes VALUES (?,?)').run(p.id,JSON.stringify(p));disk.prepare('INSERT INTO field_notes VALUES (?,?)').run('legacy-note',JSON.stringify({id:'legacy-note',title:'Diário existente',content:'Preservar',entryDate:'2026-10-28',version:'note-version'}));disk.close();
 const {server}=await import('../server.js');
-let base;
-before(async()=>{await new Promise(r=>server.listen(0,'127.0.0.1',r));base=`http://127.0.0.1:${server.address().port}`;});
-after(async()=>{await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});});
-test('espaço privado: login, cookies, bloqueio de dados e logout',async t=>{
- let cookie;
- await t.test('consultas e alterações exigem sessão',async()=>{
-  for(const [path,method]of [['notes','GET'],['notes','POST'],['notes/test','PUT'],['notes/test','DELETE'],['processes','GET'],['processes','POST'],['demo','DELETE'],['health','GET']]){const r=await fetch(`${base}/api/${path}`,{method});assert.equal(r.status,401);assert.equal((await r.json()).loginRequired,true);}
- });
- await t.test('senha incorreta e login de outra origem são recusados',async()=>{
-  const r=await fetch(base+'/api/login',{method:'POST',body:JSON.stringify({password:'errada'})});assert.equal(r.status,401);assert.equal(r.headers.get('set-cookie'),null);
-  assert.equal((await fetch(base+'/api/login',{method:'POST',headers:{Origin:'https://outro.invalid'},body:JSON.stringify({password:process.env.APP_PASSWORD})})).status,403);
- });
- await t.test('sessão assinada permite acesso e utiliza HttpOnly',async()=>{
-  const r=await fetch(base+'/api/login',{method:'POST',body:JSON.stringify({password:process.env.APP_PASSWORD})});assert.equal(r.status,200);cookie=r.headers.get('set-cookie');assert.match(cookie,/HttpOnly/);assert.match(cookie,/SameSite=Strict/);assert.match(cookie,/Max-Age=28800/);cookie=cookie.split(';')[0];
-  const health=await fetch(base+'/api/health',{headers:{Cookie:cookie}});assert.equal(health.status,200);assert.equal((await health.json()).private,true);
- });
- await t.test('cookie adulterado não autentica',async()=>{const r=await fetch(base+'/api/processes',{headers:{Cookie:cookie+'adulterado'}});assert.equal(r.status,401);});
- await t.test('logout remove cookie do navegador',async()=>{const r=await fetch(base+'/api/logout',{method:'POST',headers:{Cookie:cookie}});assert.equal(r.status,200);assert.match(r.headers.get('set-cookie'),/Max-Age=0/);assert.equal((await fetch(base+'/api/processes')).status,401);});
- await t.test('configuração sem senha segura falha sem expor a base',async()=>{const original=process.env.APP_PASSWORD;process.env.APP_PASSWORD='curta';const r=await fetch(base+'/api/processes');assert.equal(r.status,503);process.env.APP_PASSWORD=original;});
+test('contas individuais: migração, isolamento, convites, sessões e recuperação',async t=>{
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}`;
+ const call=async(path,method='GET',body,cookie)=>{const r=await fetch(base+'/api'+path,{method,headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,body:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0],header:r.headers.get('set-cookie')};};
+ const admin={name:'Responsável',email:'owner@example.test',password:randomBytes(24).toString('hex'),setupPassword:secret};
+ const member={name:'Outra pessoa',email:'member@example.test',password:randomBytes(24).toString('hex')};let a,b,token,recovery,memberId,adminId,bp,bn;
+ try{
+ await t.test('sem sessão não acessa dados, nem com a antiga senha compartilhada',async()=>{for(const path of ['/processes','/notes','/health'])assert.equal((await call(path)).status,401);assert.equal((await call('/login','POST',{password:secret})).status,401);assert.equal((await call('/auth/status')).body.setupRequired,true);});
+ await t.test('primeira conta exige senha atual e assume dados legados',async()=>{assert.equal((await call('/setup','POST',{...admin,setupPassword:'errada'})).status,401);const r=await call('/setup','POST',admin);assert.equal(r.status,201);a=r.cookie;adminId=r.body.user.id;assert.equal(r.body.recoveryCodes.length,4);assert.equal(r.body.user.password_hash,undefined);assert.match(r.header,/HttpOnly/);assert.match(r.header,/SameSite=Strict/);assert.deepEqual((await call('/processes','GET',undefined,a)).body.map(x=>x.id),[p.id]);assert.equal((await call('/notes','GET',undefined,a)).body[0].content,'Preservar');assert.equal((await call('/setup','POST',admin)).status,409);const verifyDb=new DatabaseSync(process.env.DB_PATH);assert.equal(verifyDb.prepare("SELECT name FROM sqlite_master WHERE name='processes'").get(),undefined);assert.equal(verifyDb.prepare("SELECT name FROM sqlite_master WHERE name='field_notes'").get(),undefined);verifyDb.close();});
+ await t.test('convite permite outra conta, sem herdar dados antigos',async()=>{const invite=await call('/invitations','POST',{email:member.email},a);assert.equal(invite.status,201);token=invite.body.token;assert.equal((await call('/invitation','POST',{token})).body.email,member.email);const r=await call('/register','POST',{...member,token});assert.equal(r.status,201);b=r.cookie;recovery=r.body.recoveryCodes;memberId=r.body.user.id;assert.equal(r.body.user.role,'member');assert.deepEqual((await call('/processes','GET',undefined,b)).body,[]);assert.deepEqual((await call('/notes','GET',undefined,b)).body,[]);assert.equal((await call('/register','POST',{...member,token})).status,400);});
+ await t.test('cada usuário pode ter o mesmo número/ano em seu espaço',async()=>{const r=await call('/processes','POST',{...p,id:'ignorar',owner_id:adminId},b);assert.equal(r.status,201);bp=r.body;assert.notEqual(bp.id,p.id);assert.equal((await call('/processes','GET',undefined,b)).body.length,1);assert.equal((await call('/processes','GET',undefined,a)).body.length,1);});
+ await t.test('IDs de processos e andamentos de outro usuário retornam 404',async()=>{for(const [path,method,body]of [[`/processes/${p.id}`,'GET'],[`/processes/${p.id}`,'PUT',{...p,title:'Invasão'}],[`/processes/${p.id}`,'DELETE'],[`/processes/${p.id}/history`,'POST',{text:'Invasão'}]])assert.equal((await call(path,method,body,b)).status,404);assert.equal((await call('/processes/'+bp.id,'GET',undefined,a)).status,404);assert.equal((await call('/processes/'+p.id,'GET',undefined,a)).body.title,p.title);});
+ await t.test('diário e exclusões são privados, inclusive para administrador',async()=>{const r=await call('/notes','POST',{title:'Nota particular',content:'Só da outra pessoa',entryDate:'2026-10-28',owner_id:adminId},b);assert.equal(r.status,201);bn=r.body;for(const [path,method,body]of [[`/notes/${bn.id}`,'GET'],[`/notes/${bn.id}`,'PUT',{...bn,content:'Invasão'}],[`/notes/${bn.id}`,'DELETE',{version:bn.version}]])assert.equal((await call(path,method,body,a)).status,404);assert.equal((await call('/notes/legacy-note','GET',undefined,b)).status,404);await call('/demo','DELETE',undefined,a);assert.equal((await call('/processes','GET',undefined,b)).body.length,1);assert.equal((await call('/notes','GET',undefined,b)).body.length,1);});
+ await t.test('somente administrador gera convites; não há registro público',async()=>{assert.equal((await call('/invitations','POST',{email:'new@example.test'},b)).status,403);assert.equal((await call('/register','POST',{name:'Intruso',email:'new@example.test',password:'long-strong-password'})).status,400);});
+ await t.test('logout revoga a sessão no servidor e cookie adulterado falha',async()=>{assert.equal((await call('/me','GET',undefined,b+'x')).status,401);const r=await call('/logout','POST',{},b);assert.equal(r.status,200);assert.equal((await call('/me','GET',undefined,b)).status,401);const login=await call('/login','POST',{email:member.email.toUpperCase(),password:member.password});assert.equal(login.status,200);b=login.cookie;});
+ await t.test('recuperação usa código uma vez e revoga sessões anteriores',async()=>{const password=randomBytes(24).toString('hex');assert.equal((await call('/recover','POST',{email:member.email,code:recovery[0],password})).status,200);assert.equal((await call('/me','GET',undefined,b)).status,401);assert.equal((await call('/recover','POST',{email:member.email,code:recovery[0],password})).status,400);assert.equal((await call('/login','POST',{email:member.email,password:member.password})).status,401);member.password=password;b=(await call('/login','POST',member)).cookie;});
+ await t.test('senhas, sessões e códigos não ficam em texto aberto no banco',async()=>{const db=new DatabaseSync(process.env.DB_PATH,{readOnly:true});const u=db.prepare('SELECT * FROM users WHERE id=?').get(memberId);assert.match(u.password_hash,/^scrypt:/);assert.notEqual(u.password_hash,member.password);assert.equal(db.prepare('SELECT * FROM recovery_codes WHERE digest=?').get(recovery[1]),undefined);const stored=db.prepare('SELECT digest FROM sessions WHERE user_id=?').get(memberId);assert.notEqual(stored.digest,b.split('=')[1]);db.close();});
+ await t.test('troca de senha encerra outras sessões e preserva a sessão atual',async()=>{const previous=b;const password=randomBytes(24).toString('hex');const r=await call('/password','POST',{currentPassword:member.password,password},b);assert.equal(r.status,200);b=r.cookie;assert.equal((await call('/me','GET',undefined,previous)).status,401);assert.equal((await call('/me','GET',undefined,b)).status,200);assert.equal((await call('/notes','GET',undefined,b)).body[0].id,bn.id);});
+ await t.test('limita tentativas de senha por identidade e origem',async()=>{let last;for(let i=0;i<11;i++)last=await call('/login','POST',{email:'unknown@example.test',password:'incorreta'});assert.equal(last.status,429);});
+ }finally{await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});}
 });

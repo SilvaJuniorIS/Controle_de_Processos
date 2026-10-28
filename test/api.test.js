@@ -1,3 +1,4 @@
+import {setupClient} from '../test-support/client.js';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -8,10 +9,10 @@ import { DatabaseSync } from 'node:sqlite';
 const dir=mkdtempSync(join(tmpdir(),'fluxo-test-'));
 process.env.DB_PATH=join(dir,'test.sqlite');
 const {server}=await import('../server.js');
-let base;
-before(async()=>{await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${server.address().port}`;});
+let base,client;
+before(async()=>{await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${server.address().port}`;client=await setupClient(base);});
 after(async()=>{await new Promise(resolve=>server.close(resolve));rmSync(dir,{recursive:true,force:true});});
-const request=async(path,method='GET',data)=>{const r=await fetch(base+'/api'+path,{method,headers:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});return {status:r.status,body:await r.json()};};
+const request=(...args)=>client(...args);
 const input=()=>({number:'123',year:2026,title:'Teste de contrato',reason:'Emitir parecer',receivedAt:'2026-10-28',dueAt:'2026-10-30',status:'A analisar',priority:'Alta',nextAction:'Conferir documentação',origin:'Administração',owner:'Minha mesa',category:'Contratos',notes:'Contexto de teste'});
 
 test('fluxo completo: persistência, validação, histórico e exclusão',async t=>{
@@ -22,7 +23,7 @@ test('fluxo completo: persistência, validação, histórico e exclusão',async 
  await t.test('impede número e ano duplicados',async()=>{assert.equal((await request('/processes','POST',input())).status,400);});
  await t.test('adição de andamento preserva registros anteriores',async()=>{const r=await request(`/processes/${id}/history`,'POST',{text:'Documentação conferida. Aguardando assinatura.'});assert.equal(r.status,201);assert.equal(r.body.history.length,2);assert.equal(r.body.history[1].type,'Andamento');assert.equal((await request(`/processes/${id}/history`,'POST',{text:' '})).status,400);});
  await t.test('edição registra diferenças e conclusão preserva histórico',async()=>{const r=await request(`/processes/${id}`,'PUT',{...input(),status:'Concluído',notes:'Finalizado'});assert.equal(r.status,200);assert.equal(r.body.history.length,3);assert.equal(r.body.status,'Concluído');assert.ok(r.body.history[2].changes.some(c=>c.field==='status'&&c.before==='A analisar'&&c.after==='Concluído'));});
- await t.test('dados foram gravados no SQLite, fora da memória do servidor',async()=>{const disk=new DatabaseSync(process.env.DB_PATH,{readOnly:true});const p=JSON.parse(disk.prepare('SELECT body FROM processes WHERE id=?').get(id).body);assert.equal(p.status,'Concluído');assert.equal(p.history.length,3);disk.close();});
+ await t.test('dados foram gravados no SQLite, fora da memória do servidor',async()=>{const disk=new DatabaseSync(process.env.DB_PATH,{readOnly:true});const p=JSON.parse(disk.prepare('SELECT body FROM private_processes WHERE id=?').get(id).body);assert.equal(p.status,'Concluído');assert.equal(p.history.length,3);disk.close();});
  await t.test('não substitui dados reais por demonstração',async()=>{assert.equal((await request('/demo','POST',{})).status,400);assert.equal((await request('/processes')).body.length,1);});
  await t.test('rejeita escrita por outra origem e limita recursos desconhecidos',async()=>{const r=await fetch(base+'/api/processes',{method:'POST',headers:{Origin:'https://outro-site.invalid','Content-Type':'application/json'},body:JSON.stringify(input())});assert.equal(r.status,403);assert.equal((await request('/processes/inexistente')).status,404);});
  await t.test('exclusão é persistida',async()=>{assert.equal((await request(`/processes/${id}`,'DELETE')).status,200);assert.equal((await request(`/processes/${id}`)).status,404);assert.deepEqual((await request('/processes')).body,[]);});

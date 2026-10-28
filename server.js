@@ -4,14 +4,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { storage } from './storage.js';
-import { authRequired, authConfigured, authenticated, passwordMatches, sessionCookie } from './auth.js';
+import {authRoute,privateAuthRoute,currentUser,publicUser} from './auth.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const statuses = ['A analisar', 'Em andamento', 'Aguardando retorno', 'Concluído'];
 const priorities = ['Baixa', 'Normal', 'Alta', 'Urgente'];
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 function validDate(value) { return typeof value === 'string' && datePattern.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value; }
-async function clean(input, old) {
+async function clean(input, old, db) {
   if(!input || typeof input!=='object' || Array.isArray(input)) throw new Error('Dados do processo inválidos.');
   const result = {};
   for (const key of ['number', 'title', 'origin', 'reason', 'owner', 'category', 'notes', 'nextAction']) {
@@ -26,13 +26,10 @@ async function clean(input, old) {
   result.status = input.status; result.priority = input.priority;
   if (!validDate(input.receivedAt) || (input.dueAt && !validDate(input.dueAt))) throw new Error('Data inválida.');
   result.receivedAt = input.receivedAt; result.dueAt = input.dueAt || '';
-  const duplicate = await (await storage()).duplicate(result.number, result.year, old?.id || '');
+  const duplicate = await db.duplicate(result.number, result.year, old?.id || '');
   if (duplicate) throw new Error('Já existe um processo com esse número e ano.');
   return { ...result, version: randomUUID(), id: old?.id || randomUUID(), createdAt: old?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(), history: old?.history || [], demo: old?.demo || false };
 }
-const get = async id => (await storage()).get(id);
-const all = async () => (await storage()).all();
-const save = async (p,old) => (await storage()).save(p,old);
 function send(res, status, data) { res.writeHead(status, {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}); res.end(JSON.stringify(data)); }
 async function body(req) {
   // Vercel may parse JSON before handing the request to the function.
@@ -48,8 +45,8 @@ async function body(req) {
   let data = ''; for await (const chunk of req) { data += chunk; if (Buffer.byteLength(data) > 100000) throw new Error('Requisição muito grande.'); }
   try { return JSON.parse(data); } catch { throw new Error('JSON inválido.'); }
 }
-async function seed() {
-  if ((await all()).length) throw new Error('Use a demonstração apenas em uma base vazia.');
+async function seed(db) {
+  if ((await db.all()).length) throw new Error('Use a demonstração apenas em uma base vazia.');
   const today = new Date().toLocaleDateString('en-CA', {timeZone:'America/Sao_Paulo'});
   const offset = days => { const d = new Date(today + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); };
   const examples = [
@@ -62,12 +59,12 @@ async function seed() {
   ];
   const records=[];
   for (const [number,title,origin,nextAction,priority,status,days,category] of examples) {
-    const p = await clean({number,title,origin,nextAction,priority,status,category,year:Number(today.slice(0,4)),reason:'Encaminhado para análise e manifestação da unidade.',owner:'Minha mesa',receivedAt:offset(-8),dueAt:offset(days),notes:'Registro fictício para conhecer o AtlasNex Fluxo.'});
+    const p = await clean({number,title,origin,nextAction,priority,status,category,year:Number(today.slice(0,4)),reason:'Encaminhado para análise e manifestação da unidade.',owner:'Minha mesa',receivedAt:offset(-8),dueAt:offset(days),notes:'Registro fictício para conhecer o AtlasNex Fluxo.'},undefined,db);
     p.demo=true; p.history=[{id:randomUUID(),at:new Date().toISOString(),type:'Entrada',text:'Processo de demonstração recebido para análise.'}]; records.push(p);
   }
-  await (await storage()).seed(records);
+  await db.seed(records);
 }
-const files = { '/': ['index.html','text/html'], '/app.js': ['app.js','text/javascript'], '/diary.js':['diary.js','text/javascript'], '/style.css': ['style.css','text/css'], '/favicon.svg':['favicon.svg','image/svg+xml'] };
+const files = { '/': ['index.html','text/html'], '/app.js': ['app.js','text/javascript'], '/diary.js':['diary.js','text/javascript'], '/accounts.js':['accounts.js','text/javascript'], '/style.css': ['style.css','text/css'], '/favicon.svg':['favicon.svg','image/svg+xml'] };
 export async function handler(req,res) {
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
@@ -75,19 +72,18 @@ export async function handler(req,res) {
     const url = new URL(req.url,'http://localhost');
     // Same-origin writes and HttpOnly sessions protect the private workspace.
     if (!['GET','HEAD'].includes(req.method) && req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) return send(res,403,{error:'Origem não permitida.'});
-    if (url.pathname.startsWith('/api/')) {
-      if(authRequired() && !authConfigured()) return send(res,503,{error:'Configure APP_PASSWORD com pelo menos 16 caracteres para ativar o acesso privado.'});
-      if(url.pathname==='/api/login' && req.method==='POST') {
-        const input=await body(req);
-        if(!passwordMatches(input?.password)) return send(res,401,{error:'Senha incorreta.'});
-        res.setHeader('Set-Cookie',sessionCookie()); return send(res,200,{ok:true});
-      }
-      if(!authenticated(req))return send(res,401,{error:'Entre com a senha do seu espaço para continuar.',loginRequired:true});
-      if(url.pathname==='/api/logout' && req.method==='POST') { res.setHeader('Set-Cookie',sessionCookie(true));return send(res,200,{ok:true}); }
+    let db,user,store;
+    if(url.pathname.startsWith('/api/')){
+      store=await storage();
+      if(await authRoute(req,res,url,store,body,send))return;
+      user=await currentUser(req,store);
+      if(!user)return send(res,401,{error:'Entre com seu e-mail e senha para continuar.',loginRequired:true});
+      if(await privateAuthRoute(req,res,url,store,user,body,send))return;
+      db=store.forUser(user.id);
     }
-    if (url.pathname === '/api/health') { const db=await storage(); await db.all(); return send(res,200,{status:'ok',storage:db.kind,private:authRequired()}); }
+    if(url.pathname==='/api/health'){await db.all();return send(res,200,{status:'ok',storage:store.kind,private:true,user:publicUser(user)});}
     if(url.pathname==='/api/notes' || /^\/api\/notes\/[\w-]+$/.test(url.pathname)) {
-      const notes=(await storage()).notes;
+      const notes=db.notes;
       const id=url.pathname.split('/')[3];
       if(!id && req.method==='GET')return send(res,200,await notes.all());
       const old=id?await notes.get(id):null;
@@ -110,35 +106,35 @@ export async function handler(req,res) {
       }
       return send(res,405,{error:'Método não permitido.'});
     }
-    if (url.pathname === '/api/processes' && req.method === 'GET') return send(res,200,await all());
-    if (url.pathname === '/api/demo' && req.method === 'POST') { await seed(); return send(res,201,await all()); }
-    if (url.pathname === '/api/demo' && req.method === 'DELETE') { await (await storage()).removeDemo(); return send(res,200,{ok:true}); }
+    if (url.pathname === '/api/processes' && req.method === 'GET') return send(res,200,await db.all());
+    if (url.pathname === '/api/demo' && req.method === 'POST') { await seed(db); return send(res,201,await db.all()); }
+    if (url.pathname === '/api/demo' && req.method === 'DELETE') { await db.removeDemo(); return send(res,200,{ok:true}); }
     if (url.pathname === '/api/processes' && req.method === 'POST') {
-      const p=await clean(await body(req)); p.history.push({id:randomUUID(),at:p.createdAt,type:'Entrada',text:'Entrada registrada: '+p.reason}); await save(p); return send(res,201,p);
+      const p=await clean(await body(req),undefined,db); p.history.push({id:randomUUID(),at:p.createdAt,type:'Entrada',text:'Entrada registrada: '+p.reason,actor:{id:user.id,name:user.name}}); await db.save(p); return send(res,201,p);
     }
     const match=url.pathname.match(/^\/api\/processes\/([\w-]+)(\/history)?$/);
     if (match) {
-      const old=await get(match[1]); if(!old) return send(res,404,{error:'Processo não encontrado.'});
+      const old=await db.get(match[1]); if(!old) return send(res,404,{error:'Processo não encontrado.'});
       if(req.method==='GET') return send(res,200,old);
-      if(req.method==='DELETE' && !match[2]) { await (await storage()).remove(old.id); return send(res,200,{ok:true}); }
+      if(req.method==='DELETE' && !match[2]) { await db.remove(old.id); return send(res,200,{ok:true}); }
       if(req.method==='PUT' && !match[2]) {
         const input=await body(req);
         if(input.version && input.version!==old.version) return send(res,409,{error:'Este processo mudou desde a última leitura. Reabra-o antes de editar.'});
-        const p=await clean(input,old);
+        const p=await clean(input,old,db);
         const changes=Object.keys(p).filter(k=>!['history','updatedAt','createdAt','demo','id','version'].includes(k) && p[k]!==old[k]);
-        if(changes.length) p.history.push({id:randomUUID(),at:p.updatedAt,type:'Atualização',text: old.status!==p.status ? `Situação alterada de “${old.status}” para “${p.status}”.` : 'Dados do processo atualizados.',changes:changes.map(field=>({field,before:old[field] ?? '',after:p[field]}))});
-        await save(p,old); return send(res,200,p);
+        if(changes.length) p.history.push({id:randomUUID(),at:p.updatedAt,type:'Atualização',text: old.status!==p.status ? `Situação alterada de “${old.status}” para “${p.status}”.` : 'Dados do processo atualizados.',actor:{id:user.id,name:user.name},changes:changes.map(field=>({field,before:old[field] ?? '',after:p[field]}))});
+        await db.save(p,old); return send(res,200,p);
       }
       if(req.method==='POST' && match[2]) {
         const b=await body(req); if(typeof b.text!=='string' || !b.text.trim() || b.text.length>10000) throw new Error('Descreva o andamento (até 10.000 caracteres).');
-        const previous=structuredClone(old); old.updatedAt=new Date().toISOString(); old.version=randomUUID(); old.history.push({id:randomUUID(),at:old.updatedAt,type:'Andamento',text:b.text.trim()}); await save(old,previous); return send(res,201,old);
+        const previous=structuredClone(old); old.updatedAt=new Date().toISOString(); old.version=randomUUID(); old.history.push({id:randomUUID(),at:old.updatedAt,type:'Andamento',text:b.text.trim(),actor:{id:user.id,name:user.name}}); await db.save(old,previous); return send(res,201,old);
       }
     }
     if(req.method==='GET' && files[url.pathname]) { const [file,type]=files[url.pathname]; res.writeHead(200,{'Content-Type':type+'; charset=utf-8'}); return res.end(readFileSync(join(root,'public',file))); }
     send(res,404,{error:'Rota não encontrada.'});
   } catch(error) {
-    if(error.code==='23505' || error.code?.startsWith('SQLITE_CONSTRAINT')) return send(res,409,{error:'Já existe um processo com esse número e ano.'});
-    if(error.message?.startsWith('Este processo') || error.message?.startsWith('Esta anotação')) return send(res,409,{error:error.message});
+    if(error.code==='23505' || error.code?.startsWith('SQLITE_CONSTRAINT')) return send(res,409,{error:'O registro já existe ou foi alterado por outra solicitação. Atualize a página e tente novamente.'});
+    if(error.message?.startsWith('A conta mudou') || error.message?.startsWith('Este processo') || error.message?.startsWith('Esta anotação')) return send(res,409,{error:error.message});
     if(error.name==='NeonDbError' || error.message?.includes('fetch failed')) { console.error('Falha de conexão com o banco.');return send(res,503,{error:'O banco de dados está indisponível. Tente novamente em instantes.'}); }
     console.error(error.message); send(res,400,{error:error.message});
   }

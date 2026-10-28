@@ -22,11 +22,11 @@ O diferencial a validar é uma mesa de trabalho orientada à próxima providênc
 
 ## Caminho comercial
 
-A edição atual permite desenvolvimento local e foi adaptada para um piloto privado na Vercel com Neon e senha compartilhada. A publicação real depende de provisionamento e validação. Ainda não é um SaaS para equipes pronto para venda. A hipótese é cobrar por espaço de trabalho e assentos, com receita recorrente e implantação assistida opcional. Preços devem ser definidos após entrevistas e pilotos pagos, sem assumir que cada público aceita o mesmo modelo.
+A edição atual permite desenvolvimento local e piloto privado na Vercel com Neon e contas individuais. Cada usuário é responsável pelo próprio fluxo e diário, com entrada por convite e recuperação por códigos. A publicação real depende de provisionamento e validação. Ainda não é um SaaS para equipes pronto para venda. A hipótese é cobrar por espaço de trabalho e assentos, com receita recorrente e implantação assistida opcional. Preços devem ser definidos após entrevistas e pilotos pagos, sem assumir que cada público aceita o mesmo modelo.
 
 | Oferta proposta | Valor para o usuário | Entregas necessárias |
 | --- | --- | --- |
-| Individual | Controle pessoal de processos e prioridades | Login, backup, restauração, onboarding e exportação completa |
+| Individual | Controle pessoal de processos e prioridades | Login individual implementado; evoluir backup, restauração, onboarding e exportação completa |
 | Equipes | Mesa compartilhada, distribuição e continuidade | Organizações isoladas, papéis, responsáveis autenticados, comentários, controle de concorrência, auditoria e notificações |
 | Institucional | Governança e integração | SSO, políticas de retenção, gestão de acesso, relatórios, API, contratos de suporte e requisitos de contratação |
 

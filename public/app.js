@@ -1,3 +1,4 @@
+import {createAccounts} from './accounts.js';
 import { createDiary } from './diary.js';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -26,22 +27,17 @@ function toast(message,error=false){clearTimeout(toastTimer);$('#toast').textCon
 async function refresh(){processes=await api('/processes');render();}
 function showLogin(){
   processes=[];diary.clear();render();$$('dialog[open]').forEach(d=>d.close());$('#detail-content').innerHTML='';$('#process-form').reset();detailId=null;
-  $('#login-error').textContent='';$('#access-password').value='';$('#login-dialog').showModal();
+  accounts.open();
 }
+const accounts=createAccounts({api,toast,esc,info,onLogin:loadWorkspace});
 const diary=createDiary({api,toast,confirmAction,esc,date,timestamp,today,icon});
 $('#new-note').onclick=()=>diary.newEntry();
 async function loadWorkspace(){
   const health=await api('/health');cloud=health.storage==='postgres';privateSpace=health.private;
   $('.local-status').innerHTML='<i></i> '+(cloud?'Banco na nuvem':'Armazenamento local');
-  $('.profile small').textContent=(privateSpace?'Espaço privado':'Edição local')+' · v0.3';
-  await refresh();
+  accounts.updateUser(health.user);$('.profile small').textContent='Conta individual · v0.4';$('.profile>span:nth-child(2)').firstChild.textContent=health.user.name;$$('.avatar').forEach(el=>el.textContent=health.user.name.split(' ').slice(0,2).map(n=>n[0]).join('').toUpperCase());
+  await refresh();if(view==='diary')await diary.load();
 }
-$('#login-dialog').addEventListener('cancel',event=>event.preventDefault());
-$('#login-form').addEventListener('submit',async event=>{
-  event.preventDefault();const button=event.submitter;button.disabled=true;$('#login-error').textContent='';
-  try{await api('/login',{method:'POST',body:JSON.stringify({password:$('#access-password').value})});await loadWorkspace();$('#access-password').value='';$('#login-dialog').close();toast('Bem-vindo ao seu espaço.');}
-  catch(e){$('#login-error').textContent=e.message;}finally{button.disabled=false;}
-});
 function dueMarkup(p){
   if(!p.dueAt)return '<span class="due">Sem prazo</span>';
   const n=days(p.dueAt); let label='',cls='';
@@ -91,7 +87,7 @@ function openForm(p){
 }
 function detail(p){
  detailId=p.id;
- $('#detail-content').innerHTML=`<div class="modal-header"><div><div class="detail-heading">${icon('folder')} Processo ${esc(p.number)}/${p.year}${p.demo?' · Demonstração':''}</div><h2 class="detail-title">${esc(p.title)}</h2></div><button class="icon-button" data-close="detail-dialog" aria-label="Fechar">×</button></div><div class="detail-body"><div class="detail-badges">${badge(p)}${priority(p)}</div><div class="detail-summary"><div><label>Entrada na mesa</label><p>${date(p.receivedAt)}</p></div><div><label>Origem</label><p>${esc(p.origin||'Não informada')}</p></div><div><label>Responsável</label><p>${esc(p.owner||'Não definido')}</p></div><div><label>Categoria</label><p>${esc(p.category||'Não definida')}</p></div><div><label>Prazo</label><p>${dueMarkup(p)}</p></div><div><label>Última atualização</label><p>${timestamp(p.updatedAt)}</p></div></div><div class="detail-block"><label>Por que chegou à sua mesa</label><p>${esc(p.reason)}</p></div><div class="detail-block next-action-card"><label>Próxima providência</label><p>${esc(p.nextAction||'Nenhuma providência definida. Edite o processo para registrar o próximo passo.')}</p></div>${p.notes?`<div class="detail-block"><label>Observações</label><p>${esc(p.notes)}</p></div>`:''}<div class="history-heading"><h3>Histórico do processo</h3><span class="count-pill">${p.history.length} registro${p.history.length===1?'':'s'}</span></div><div class="timeline">${[...p.history].reverse().map(h=>`<div class="timeline-item"><strong>${esc(h.type)}</strong><time>${timestamp(h.at)}</time><p>${esc(h.text)}</p>${h.changes?.length?`<details><summary>Ver alterações</summary>${h.changes.map(c=>`<p><b>${esc(fields[c.field]||c.field)}:</b> ${esc(c.before||'Não informado')} → ${esc(c.after||'Não informado')}</p>`).join('')}</details>`:''}</div>`).join('')}</div><form class="history-form" id="history-form"><label for="history-text">Registrar novo andamento</label><textarea id="history-text" name="text" required maxlength="10000" placeholder="O que aconteceu? Qual foi o encaminhamento?"></textarea><p class="form-error" id="history-error" role="alert"></p><button class="button primary" type="submit">${icon('plus')} Registrar andamento</button></form></div><div class="modal-footer detail-footer"><button class="danger-text" id="delete-process">Excluir processo</button><div>${active(p)?'<button class="button secondary" id="complete-process">'+icon('check')+' Concluir</button>':''}<button class="button primary" id="edit-process">Editar processo</button></div></div>`;
+ $('#detail-content').innerHTML=`<div class="modal-header"><div><div class="detail-heading">${icon('folder')} Processo ${esc(p.number)}/${p.year}${p.demo?' · Demonstração':''}</div><h2 class="detail-title">${esc(p.title)}</h2></div><button class="icon-button" data-close="detail-dialog" aria-label="Fechar">×</button></div><div class="detail-body"><div class="detail-badges">${badge(p)}${priority(p)}</div><div class="detail-summary"><div><label>Entrada na mesa</label><p>${date(p.receivedAt)}</p></div><div><label>Origem</label><p>${esc(p.origin||'Não informada')}</p></div><div><label>Responsável</label><p>${esc(p.owner||'Não definido')}</p></div><div><label>Categoria</label><p>${esc(p.category||'Não definida')}</p></div><div><label>Prazo</label><p>${dueMarkup(p)}</p></div><div><label>Última atualização</label><p>${timestamp(p.updatedAt)}</p></div></div><div class="detail-block"><label>Por que chegou à sua mesa</label><p>${esc(p.reason)}</p></div><div class="detail-block next-action-card"><label>Próxima providência</label><p>${esc(p.nextAction||'Nenhuma providência definida. Edite o processo para registrar o próximo passo.')}</p></div>${p.notes?`<div class="detail-block"><label>Observações</label><p>${esc(p.notes)}</p></div>`:''}<div class="history-heading"><h3>Histórico do processo</h3><span class="count-pill">${p.history.length} registro${p.history.length===1?'':'s'}</span></div><div class="timeline">${[...p.history].reverse().map(h=>`<div class="timeline-item"><strong>${esc(h.type)}${h.actor?.name?' · '+esc(h.actor.name):''}</strong><time>${timestamp(h.at)}</time><p>${esc(h.text)}</p>${h.changes?.length?`<details><summary>Ver alterações</summary>${h.changes.map(c=>`<p><b>${esc(fields[c.field]||c.field)}:</b> ${esc(c.before||'Não informado')} → ${esc(c.after||'Não informado')}</p>`).join('')}</details>`:''}</div>`).join('')}</div><form class="history-form" id="history-form"><label for="history-text">Registrar novo andamento</label><textarea id="history-text" name="text" required maxlength="10000" placeholder="O que aconteceu? Qual foi o encaminhamento?"></textarea><p class="form-error" id="history-error" role="alert"></p><button class="button primary" type="submit">${icon('plus')} Registrar andamento</button></form></div><div class="modal-footer detail-footer"><button class="danger-text" id="delete-process">Excluir processo</button><div>${active(p)?'<button class="button secondary" id="complete-process">'+icon('check')+' Concluir</button>':''}<button class="button primary" id="edit-process">Editar processo</button></div></div>`;
  if(!$('#detail-dialog').open)$('#detail-dialog').showModal();
 }
 async function openDetail(id){try{detail(await api('/processes/'+id));}catch(e){toast(e.message,true);}}
@@ -122,7 +118,7 @@ $('#confirm-cancel').onclick=()=>$('#confirm-dialog').close();
 $('#menu-toggle').onclick=()=>$('.sidebar').classList.toggle('open');
 document.addEventListener('click',e=>{if(!e.target.closest('.sidebar')&&!e.target.closest('#menu-toggle'))$('.sidebar').classList.remove('open');});
 $('#integrations').onclick=()=>info('Um universo. Mais possibilidades.',`<span class="integration-status">Visão de produto · Integrações futuras</span><h3>AtlasNex Fluxo</h3><p>O ponto de partida para organizar processos, preservar contexto e dar clareza a cada providência.</p><h3>FiscalBot + Fluxo</h3><p>A integração planejada permitirá vincular análises do FiscalBot aos processos e sugerir providências para revisão humana. Esta versão ainda não se conecta ao FiscalBot.</p><h3>Feito para evoluir</h3><p>Equipes, permissões, múltiplas organizações e integrações por API fazem parte da evolução comercial. Hoje, você tem uma edição local funcional para validar o seu fluxo de trabalho.</p>`);
-$('#about').onclick=()=>info('Seu espaço no AtlasNex Fluxo',`<span class="integration-status">${cloud?'Edição nuvem':'Edição local'} · versão 0.3</span><p>${cloud?'Os registros ficam no banco Postgres conectado ao projeto, preservados entre execuções da aplicação. Configure e teste backups no seu provedor.':'Os dados ficam em SQLite nesta máquina. Preserve a pasta data/ e mantenha backups.'}</p><p>${privateSpace?'O espaço é protegido por uma senha compartilhada e sessão de 8 horas. Ainda não há contas individuais, separação por organização ou auditoria de usuários.':'O acesso local está sem senha. Defina APP_PASSWORD para exigir autenticação.'}</p><p>A integração com FiscalBot é futura. O histórico não é inviolável; exportar CSV gera uma planilha dos campos atuais.</p>${privateSpace?'<button class="button secondary" id="logout">Sair do espaço</button>':''}`);
+$('#about').onclick=()=>accounts.profile();
 document.addEventListener('click',async event=>{if(!event.target.closest('#logout'))return;try{await api('/logout',{method:'POST',body:'{}'});showLogin();}catch(e){toast(e.message,true);}});
 $('#export').onclick=()=>{
  const rows=filtered();if(!rows.length)return toast('Não há processos nesta seleção para exportar.');
@@ -132,4 +128,4 @@ $('#export').onclick=()=>{
 };
 $('#date-label').textContent=new Intl.DateTimeFormat('pt-BR',{weekday:'long',day:'numeric',month:'long',timeZone:'America/Sao_Paulo'}).format(new Date()).toLocaleUpperCase('pt-BR');
 icons();
-try{await loadWorkspace();}catch(e){$('#empty-state').hidden=false;$('#empty-state').innerHTML='<h3>Não foi possível carregar sua mesa.</h3><p>Verifique se o servidor está em execução e recarregue a página.</p>';toast(e.message,true);}
+try{const status=await api('/auth/status');if(status.user&&!location.hash.startsWith('#convite='))await loadWorkspace();else showLogin();}catch(e){$('#empty-state').hidden=false;$('#empty-state').innerHTML='<h3>Não foi possível carregar sua mesa.</h3><p>Verifique se o servidor está em execução e recarregue a página.</p>';toast(e.message,true);}

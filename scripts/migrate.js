@@ -1,8 +1,6 @@
-import { neon } from '@neondatabase/serverless';
-
-if(!process.env.DATABASE_URL) throw new Error('Configure DATABASE_URL com a conexão Neon. Não compartilhe a URL no chat.');
+import {neon} from '@neondatabase/serverless';
+import {postgresSchema} from '../schema.js';
+if(!process.env.DATABASE_URL)throw new Error('Configure DATABASE_URL com a conexão Neon.');
 const sql=neon(process.env.DATABASE_URL);
-await sql`CREATE TABLE IF NOT EXISTS processes (id TEXT PRIMARY KEY, body JSONB NOT NULL)`;
-await sql`CREATE UNIQUE INDEX IF NOT EXISTS processes_number_year ON processes ((body->>'number'),(body->>'year'))`;
-await sql`CREATE TABLE IF NOT EXISTS field_notes (id TEXT PRIMARY KEY, body JSONB NOT NULL)`;
-console.log('Schemas de processos e diário preparados no Postgres.');
+await sql.transaction(postgresSchema.map(text=>sql.query(text,[])));
+console.log('Migração de contas e propriedade de registros concluída. Dados existentes preservados.');
