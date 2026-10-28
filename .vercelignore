@@ -1,0 +1,7 @@
+.git
+data
+test
+*.log
+.env*
+PRODUTO.md
+README.md

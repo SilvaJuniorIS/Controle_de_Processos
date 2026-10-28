@@ -1,0 +1,22 @@
+{
+  "name": "atlasnex-fluxo",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "build": "node scripts/build.js",
+    "db:migrate": "node scripts/migrate.js"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13"
+  }
+}
