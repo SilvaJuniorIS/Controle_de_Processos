@@ -51,3 +51,7 @@ Omita `project create` se o projeto já existir. Se estiver numa equipe, selecio
 - Depois da validação, remova apenas os registros fictícios que você criou.
 
 Para Preview, use uma base Neon separada da produção. A migração modifica o esquema; não deixe builds de teste alterarem a base real. Ainda não há compartilhamento, contas de equipe, envio/verificação de e-mail ou integração FiscalBot. O administrador de convites não possui uma tela de acesso aos processos de outras pessoas.
+
+## Controle diário em PDF (0.5)
+
+A atualização adiciona `/api/daily?date=AAAA-MM-DD` e `/api/daily.pdf?date=AAAA-MM-DD`, ambos exigindo sessão e usando o proprietário autenticado. Não há nova variável de ambiente nem alteração de esquema necessária para essa funcionalidade. O build inclui as fontes de `assets/fonts/**` na função. Depois do deploy, confira o resumo de uma data, faça uma anotação e baixe o PDF. Situações e providências são as atuais; o documento não é uma reconstrução histórica imutável.

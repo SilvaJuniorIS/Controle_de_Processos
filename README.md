@@ -48,6 +48,16 @@ Cadastro, edição, situações, prioridades, prazos, histórico e exportação 
 
 Datas e alertas seguem São Paulo. O histórico não é inviolável. Exclusão exige confirmação e é permanente. Ainda não há anexos, notificações, integração FiscalBot ou colaboração entre usuários.
 
+## Controle diário e PDF
+
+Abra **Controle diário**, selecione a data e consulte entradas informadas, movimentações registradas, conclusões, processos com prazo na data, pendências atuais anteriores e anotações do Diário de campo. Use **Anotar neste dia** para criar uma entrada com a data selecionada; o texto passa a integrar o resumo e o relatório desse dia.
+
+**Baixar relatório PDF** gera um arquivo diretamente no servidor, somente com os registros do usuário autenticado. O documento inclui nome/e-mail da conta, data de referência, emissão, resumo, detalhamento dos processos, movimentações e texto integral das anotações, com paginação e fonte incorporada para português. Não precisa configurar outro serviço ou usar a impressão do navegador. As fontes DejaVu e sua licença estão em `assets/fonts/`, incluídas na função Vercel.
+
+As movimentações são selecionadas pelo dia do evento em São Paulo. Entradas usam a data de recebimento informada; anotações usam a data escolhida no Diário. Conclusões contam alterações de situação para Concluído registradas naquele dia. Prazos na data incluem processos concluídos, identificados pela situação atual; pendências anteriores consideram processos ainda abertos agora, com prazo anterior e entrada até a data selecionada.
+
+O relatório não é um fechamento imutável: situações, providências, títulos e textos são os atuais no momento da geração, mesmo para datas passadas. Edições posteriores podem alterar o resultado; registros excluídos deixam de aparecer. O PDF informa esse limite. Para preservar um fechamento, baixe e guarde o arquivo emitido. PDFs contêm dados da conta: compartilhe somente com quem deve recebê-los.
+
 ## Migração e publicação
 
 Consulte [DEPLOY.md](DEPLOY.md). A migração Postgres acontece em transação durante o build Vercel. SQLite migra ao abrir a base. As tabelas antigas `processes` e `field_notes` são **renomeadas**, preservando seus registros, para `private_processes` e `private_field_notes`, e recebem a coluna `owner_id`. Isso impede que funções de versões antigas continuem consultando a coleção completa pelo nome antigo. A API antiga perde compatibilidade; não reverta para versões anteriores a 0.4 após a migração sem um plano de restauração. A senha compartilhada e cookies antigos deixam de dar acesso.

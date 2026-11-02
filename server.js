@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { storage } from './storage.js';
+import {buildDailyReport,dailyPdf,validDay} from './daily-report.js';
 import {authRoute,privateAuthRoute,currentUser,publicUser} from './auth.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -64,7 +65,7 @@ async function seed(db) {
   }
   await db.seed(records);
 }
-const files = { '/': ['index.html','text/html'], '/app.js': ['app.js','text/javascript'], '/diary.js':['diary.js','text/javascript'], '/accounts.js':['accounts.js','text/javascript'], '/style.css': ['style.css','text/css'], '/favicon.svg':['favicon.svg','image/svg+xml'] };
+const files = { '/': ['index.html','text/html'], '/app.js': ['app.js','text/javascript'], '/diary.js':['diary.js','text/javascript'], '/accounts.js':['accounts.js','text/javascript'], '/daily.js':['daily.js','text/javascript'], '/style.css': ['style.css','text/css'], '/favicon.svg':['favicon.svg','image/svg+xml'] };
 export async function handler(req,res) {
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
@@ -80,6 +81,13 @@ export async function handler(req,res) {
       if(!user)return send(res,401,{error:'Entre com seu e-mail e senha para continuar.',loginRequired:true});
       if(await privateAuthRoute(req,res,url,store,user,body,send))return;
       db=store.forUser(user.id);
+    }
+    if(['/api/daily','/api/daily.pdf'].includes(url.pathname)){
+      if(req.method!=='GET')return send(res,405,{error:'Método não permitido.'});
+      const day=url.searchParams.get('date');if(!validDay(day))return send(res,400,{error:'Informe uma data válida para o controle diário.'});
+      const [processes,notes]=await Promise.all([db.all(),db.notes.all()]);const report=buildDailyReport(processes,notes,day,user);
+      if(url.pathname==='/api/daily')return send(res,200,report);
+      const pdf=await dailyPdf(report);res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="atlasnex-fluxo-diario-${day}.pdf"`,'Cache-Control':'private, no-store'});return res.end(pdf);
     }
     if(url.pathname==='/api/health'){await db.all();return send(res,200,{status:'ok',storage:store.kind,private:true,user:publicUser(user)});}
     if(url.pathname==='/api/notes' || /^\/api\/notes\/[\w-]+$/.test(url.pathname)) {

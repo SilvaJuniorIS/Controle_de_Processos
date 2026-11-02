@@ -21,9 +21,9 @@ export function createDiary({api,toast,confirmAction,esc,date,timestamp,today,ic
     try{const result=await api('/notes');if(ticket!==generation)return;notes=result;loading=false;render();}
     catch(e){if(ticket!==generation)return;loading=false;$('#notes-list').innerHTML='<div class="empty-state"><h3>Não foi possível carregar o diário.</h3><p>Suas anotações não foram alteradas.</p><button class="button secondary" data-retry-notes>Tentar novamente</button></div>';toast(e.message,true);}
   }
-  function open(note){
+  function open(note,entryDate){
     selected=note||null;form.reset();$('#note-form-error').textContent='';
-    form.elements.title.value=note?.title||'';form.elements.entryDate.value=note?.entryDate||today();form.elements.content.value=note?.content||'';
+    form.elements.title.value=note?.title||'';form.elements.entryDate.value=note?.entryDate||entryDate||today();form.elements.content.value=note?.content||'';
     $('#note-form-title').textContent=note?'Sua anotação':'Nova anotação';$('#delete-note').hidden=!note;
     $('#note-save-info').textContent=note?'Última gravação: '+timestamp(note.updatedAt):'Ainda não salva';
     characters();baseline=snapshot();dialog.showModal();
@@ -40,12 +40,12 @@ export function createDiary({api,toast,confirmAction,esc,date,timestamp,today,ic
   form.addEventListener('submit',async e=>{
     e.preventDefault();const button=e.submitter;button.disabled=true;$('#note-form-error').textContent='';
     const payload={...Object.fromEntries(new FormData(form)),...(selected?{version:selected.version}:{})};
-    try{await api('/notes'+(selected?'/'+selected.id:''),{method:selected?'PUT':'POST',body:JSON.stringify(payload)});baseline=snapshot();dialog.close();toast('Anotação salva no diário.');await load();}
+    try{await api('/notes'+(selected?'/'+selected.id:''),{method:selected?'PUT':'POST',body:JSON.stringify(payload)});baseline=snapshot();dialog.close();toast('Anotação salva no diário.');document.dispatchEvent(new Event('notes-changed'));await load();}
     catch(error){$('#note-form-error').textContent=error.message;}finally{button.disabled=false;}
   });
   $('#delete-note').onclick=()=>{const note=selected;confirmAction('Excluir esta anotação?','Esta entrada será removida permanentemente. As outras anotações e os processos serão preservados.',async()=>{await api('/notes/'+note.id,{method:'DELETE',body:JSON.stringify({version:note.version})});dialog.close();toast('Anotação excluída.');await load();});};
   $('#note-search').addEventListener('input',render);$('#note-date-filter').addEventListener('change',render);
   $('#clear-note-filters').onclick=()=>{$('#note-search').value='';$('#note-date-filter').value='';render();};
   window.addEventListener('beforeunload',e=>{if(dirty()){e.preventDefault();e.returnValue='';}});
-  return {load,newEntry:()=>open(),clear:()=>{generation++;notes=[];selected=null;loading=false;form.reset();baseline=snapshot();$('#note-search').value='';$('#note-date-filter').value='';render();}};
+  return {load,newEntry:entryDate=>open(undefined,entryDate),clear:()=>{generation++;notes=[];selected=null;loading=false;form.reset();baseline=snapshot();$('#note-search').value='';$('#note-date-filter').value='';render();}};
 }

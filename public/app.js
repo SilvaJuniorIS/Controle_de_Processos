@@ -1,8 +1,9 @@
+import {createDaily} from './daily.js';
 import {createAccounts} from './accounts.js';
 import { createDiary } from './diary.js';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
-const paths={notebook:'M5 3h14v18H5z M3 7h4 M3 12h4 M3 17h4 M10 8h5 M10 12h5',dashboard:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',folder:'M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z',check:'M9 11l3 3 8-8 M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10',history:'M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v5l3 2',spark:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z',settings:'M9 4h6l1 3 3 1 1 5-2 2v4l-5 2-3-2-4 1-3-5 2-3-1-4 5-2V4Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',plus:'M12 5v14 M5 12h14',search:'M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z',download:'M12 3v12 m-5-5 5 5 5-5 M4 15v5h16v-5',clock:'M12 7v5l3 2 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',alert:'m12 3 10 18H2L12 3Z M12 9v5 M12 17v1',info:'M12 11v6 M12 7v1 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',arrow:'M5 12h14 m-5-5 5 5-5 5'};
+const paths={calendar:'M4 5h16v16H4z M8 3v4 M16 3v4 M4 10h16 M8 14h2 M14 14h2 M8 17h2',notebook:'M5 3h14v18H5z M3 7h4 M3 12h4 M3 17h4 M10 8h5 M10 12h5',dashboard:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',folder:'M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z',check:'M9 11l3 3 8-8 M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10',history:'M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v5l3 2',spark:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z',settings:'M9 4h6l1 3 3 1 1 5-2 2v4l-5 2-3-2-4 1-3-5 2-3-1-4 5-2V4Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',plus:'M12 5v14 M5 12h14',search:'M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z',download:'M12 3v12 m-5-5 5 5 5-5 M4 15v5h16v-5',clock:'M12 7v5l3 2 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',alert:'m12 3 10 18H2L12 3Z M12 9v5 M12 17v1',info:'M12 11v6 M12 7v1 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',arrow:'M5 12h14 m-5-5 5 5-5 5'};
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name]||paths.folder}"/></svg>`;
 function icons(){ $$('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon)); }
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -18,24 +19,26 @@ const priority = p => `<span class="priority priority-${esc(p.priority)}"><i></i
 const fields={number:'Número',year:'Ano',title:'Objeto',origin:'Origem',reason:'Motivo da entrada',owner:'Responsável',category:'Categoria',notes:'Observações',nextAction:'Próxima providência',status:'Situação',priority:'Prioridade',receivedAt:'Data de entrada',dueAt:'Prazo'};
 let processes=[],view='overview',status='',query='',priorityFilter='',special='',detailId=null,toastTimer,cloud=false,privateSpace=false;
 async function api(path,options={}) {
-  const response=await fetch('/api'+path,{...options,headers:{'Content-Type':'application/json',...options.headers}});
+  const {responseType,...request}=options;const response=await fetch('/api'+path,{...request,headers:{'Content-Type':'application/json',...request.headers}});
+  if(response.ok&&responseType==='blob')return response.blob();
   const result=await response.json();
   if(response.status===401 && result.loginRequired)showLogin();
   if(!response.ok) throw new Error(result.error||'Não foi possível completar a operação.'); return result;
 }
 function toast(message,error=false){clearTimeout(toastTimer);$('#toast').textContent=message;$('#toast').classList.toggle('error',error);$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);}
-async function refresh(){processes=await api('/processes');render();}
+async function refresh(){processes=await api('/processes');render();if(view==='daily')await daily.load();}
 function showLogin(){
-  processes=[];diary.clear();render();$$('dialog[open]').forEach(d=>d.close());$('#detail-content').innerHTML='';$('#process-form').reset();detailId=null;
+  processes=[];diary.clear();daily.clear();render();$$('dialog[open]').forEach(d=>d.close());$('#detail-content').innerHTML='';$('#process-form').reset();detailId=null;
   accounts.open();
 }
 const accounts=createAccounts({api,toast,esc,info,onLogin:loadWorkspace});
 const diary=createDiary({api,toast,confirmAction,esc,date,timestamp,today,icon});
+const daily=createDaily({api,toast,esc,date,timestamp,today,icon,openProcess:openDetail,newNote:day=>diary.newEntry(day)});
 $('#new-note').onclick=()=>diary.newEntry();
 async function loadWorkspace(){
   const health=await api('/health');cloud=health.storage==='postgres';privateSpace=health.private;
   $('.local-status').innerHTML='<i></i> '+(cloud?'Banco na nuvem':'Armazenamento local');
-  accounts.updateUser(health.user);$('.profile small').textContent='Conta individual · v0.4';$('.profile>span:nth-child(2)').firstChild.textContent=health.user.name;$$('.avatar').forEach(el=>el.textContent=health.user.name.split(' ').slice(0,2).map(n=>n[0]).join('').toUpperCase());
+  accounts.updateUser(health.user);$('.profile small').textContent='Conta individual · v0.5';$('.profile>span:nth-child(2)').firstChild.textContent=health.user.name;$$('.avatar').forEach(el=>el.textContent=health.user.name.split(' ').slice(0,2).map(n=>n[0]).join('').toUpperCase());
   await refresh();if(view==='diary')await diary.load();
 }
 function dueMarkup(p){
@@ -76,8 +79,8 @@ function activity(){
  const entries=processes.flatMap(p=>p.history.map(h=>({p,h}))).sort((a,b)=>b.h.at.localeCompare(a.h.at)).slice(0,50);
  $('#activity-list').innerHTML=entries.length?entries.map(({p,h})=>`<button class="activity-row" data-open="${p.id}"><time>${timestamp(h.at)}</time><div><strong>${esc(p.number)}/${p.year} · ${esc(p.title)}</strong><p>${esc(h.type)} — ${esc(h.text)}</p></div><span class="radar-arrow"><svg viewBox=0,0,24,24 aria-hidden=true><path d=M5,19L19,5M5,5H19V19 /></svg></span></button>`).join(''):'<div class="empty-state"><h3>Uma história que começa na entrada.</h3><p>Cadastre um processo. As movimentações serão exibidas aqui.</p><button class="button primary" data-new>Novo processo</button></div>';
 }
-function render(){stats();radar();table();activity();$('#nav-count').textContent=processes.filter(active).length;$('#demo-notice').hidden=view==='diary'||!processes.some(p=>p.demo);}
-function setView(next){view=next;special='';status='';query='';priorityFilter='';$('#search').value='';$('#priority-filter').value='';$$('[data-status]').forEach(b=>b.classList.toggle('active',!b.dataset.status));$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const titles={diary:['Seu dia também merece registro','Anotações livres, com uma entrada para cada assunto.','Diário de campo'],overview:['Sua mesa, sob controle','Clareza para decidir. Tranquilidade para seguir em frente.','Visão geral'],processes:['Cada processo, no lugar certo','Contexto, histórico e próximos passos em uma única mesa.','Meus processos'],actions:['O próximo passo está aqui','Transforme pendências em ações. Comece pelo que precisa de você.','Providências'],history:['Nada se perde no caminho','Acompanhe as entradas e movimentações dos seus processos.','Atividade recente']};const t=titles[view];$('#page-title').innerHTML=esc(t[0])+'<span>.</span>';$('#page-subtitle').textContent=t[1];$('#breadcrumb').textContent=t[2];$('#overview-section').hidden=view!=='overview';$('#process-section').hidden=['history','diary'].includes(view);$('#activity-section').hidden=view!=='history';$('#stats').hidden=['history','diary'].includes(view);$('#diary-section').hidden=view!=='diary';$('#new-note').hidden=view!=='diary';$('#new-process').hidden=view==='diary';if(view==='diary')diary.load();$('.sidebar').classList.remove('open');render();}
+function render(){stats();radar();table();activity();$('#nav-count').textContent=processes.filter(active).length;$('#demo-notice').hidden=['diary','daily'].includes(view)||!processes.some(p=>p.demo);}
+function setView(next){view=next;special='';status='';query='';priorityFilter='';$('#search').value='';$('#priority-filter').value='';$$('[data-status]').forEach(b=>b.classList.toggle('active',!b.dataset.status));$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const titles={daily:['Seu dia, em perspectiva','Acompanhe o trabalho da data e gere seu relatório em PDF.','Controle diário'],diary:['Seu dia também merece registro','Anotações livres, com uma entrada para cada assunto.','Diário de campo'],overview:['Sua mesa, sob controle','Clareza para decidir. Tranquilidade para seguir em frente.','Visão geral'],processes:['Cada processo, no lugar certo','Contexto, histórico e próximos passos em uma única mesa.','Meus processos'],actions:['O próximo passo está aqui','Transforme pendências em ações. Comece pelo que precisa de você.','Providências'],history:['Nada se perde no caminho','Acompanhe as entradas e movimentações dos seus processos.','Atividade recente']};const t=titles[view];$('#page-title').innerHTML=esc(t[0])+'<span>.</span>';$('#page-subtitle').textContent=t[1];$('#breadcrumb').textContent=t[2];$('#overview-section').hidden=view!=='overview';$('#process-section').hidden=['history','diary','daily'].includes(view);$('#activity-section').hidden=view!=='history';$('#stats').hidden=['history','diary','daily'].includes(view);$('#diary-section').hidden=view!=='diary';$('#new-note').hidden=view!=='diary';$('#new-process').hidden=['diary','daily'].includes(view);$('#daily-section').hidden=view!=='daily';if(view==='daily')daily.load();if(view==='diary')diary.load();$('.sidebar').classList.remove('open');render();}
 function openForm(p){
  const form=$('#process-form');form.reset();$('#form-error').textContent='';$('#form-title').textContent=p?'Editar processo':'Novo processo';
  const defaults={id:'',year:Number(today().slice(0,4)),receivedAt:today(),status:'A analisar',priority:'Normal',owner:'Minha mesa',...p};
